@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { can, ITC_ELIGIBILITY } from "@/lib/constants";
+import { can } from "@/lib/constants";
 import { formatPeriodLabel, listRecentMonthlyPeriods, currentMonthlyPeriod } from "@/lib/gst";
-import { upsertITCAction, deleteITCAction } from "./actions";
+import { deleteITCAction } from "./actions";
+import ITCForm from "./ITCForm";
 
 export default async function ITCPage({
   searchParams,
@@ -26,7 +27,12 @@ export default async function ITCPage({
     prisma.client.findMany({
       where: { isActive: true },
       orderBy: { legalName: "asc" },
-      select: { id: true, legalName: true },
+      select: {
+        id: true,
+        legalName: true,
+        gstPortalUsername: true,
+        gstPortalPasswordEnc: true,
+      },
     }),
   ]);
 
@@ -59,50 +65,20 @@ export default async function ITCPage({
       </div>
 
       {can(user.role, "write") ? (
-        <details className="card p-5">
+        <details className="card p-5" open={!!sp.client}>
           <summary className="cursor-pointer font-semibold text-slate-900">+ Add / Update ITC entry</summary>
-          <form action={upsertITCAction} className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="label">Client *</label>
-              <select name="clientId" className="input" required>
-                <option value="">— Select —</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{c.legalName}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Period *</label>
-              <select name="period" defaultValue={defaultPeriod} className="input" required>
-                {periods.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Eligibility *</label>
-              <select name="eligibility" className="input" required>
-                {ITC_ELIGIBILITY.map((e) => (
-                  <option key={e} value={e}>{e.replace("_", " ")}</option>
-                ))}
-              </select>
-            </div>
-            <div className="md:col-span-3 grid grid-cols-2 md:grid-cols-6 gap-3">
-              <div><label className="label">IGST Available</label><input name="igstAvailable" type="number" step="0.01" defaultValue="0" className="input" /></div>
-              <div><label className="label">CGST Available</label><input name="cgstAvailable" type="number" step="0.01" defaultValue="0" className="input" /></div>
-              <div><label className="label">SGST Available</label><input name="sgstAvailable" type="number" step="0.01" defaultValue="0" className="input" /></div>
-              <div><label className="label">IGST Utilised</label><input name="igstUtilised" type="number" step="0.01" defaultValue="0" className="input" /></div>
-              <div><label className="label">CGST Utilised</label><input name="cgstUtilised" type="number" step="0.01" defaultValue="0" className="input" /></div>
-              <div><label className="label">SGST Utilised</label><input name="sgstUtilised" type="number" step="0.01" defaultValue="0" className="input" /></div>
-            </div>
-            <div className="md:col-span-2">
-              <label className="label">Blocked Reason (if any)</label>
-              <input name="blockedReason" className="input" placeholder="e.g. Rule 38 — non-resident supplier" />
-            </div>
-            <div>
-              <label className="label">Remarks</label>
-              <input name="remarks" className="input" />
-            </div>
-            <div className="md:col-span-3 flex justify-end">
-              <button className="btn-primary" type="submit">Save</button>
-            </div>
-          </form>
+          <div className="mt-4">
+            <ITCForm
+              clients={clients.map((c) => ({
+                id: c.id,
+                legalName: c.legalName,
+                hasCredentials: !!(c.gstPortalUsername && c.gstPortalPasswordEnc),
+              }))}
+              periods={periods}
+              defaultPeriod={defaultPeriod}
+              defaultClientId={sp.client}
+            />
+          </div>
         </details>
       ) : null}
 
