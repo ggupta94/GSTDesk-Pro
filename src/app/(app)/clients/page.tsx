@@ -35,7 +35,10 @@ export default async function ClientsPage({
           <p className="text-sm text-slate-600">{clients.length} client{clients.length === 1 ? "" : "s"}</p>
         </div>
         {can(user.role, "write") ? (
-          <Link href="/clients/new" className="btn-primary">+ Add Client</Link>
+          <div className="flex gap-2">
+            <Link href="/clients/import" className="btn-secondary">Import from Excel</Link>
+            <Link href="/clients/new" className="btn-primary">+ Add Client</Link>
+          </div>
         ) : null}
       </div>
 

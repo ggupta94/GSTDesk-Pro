@@ -42,8 +42,8 @@ async function main() {
         {
           legalName: "Acme Manufacturing Pvt Ltd",
           tradeName: "Acme",
-          gstin: "27AAACA1234A1Z5",
-          pan: "AAACA1234A",
+          gstin: "27AAACA1111A1ZS",
+          pan: "AAACA1111A",
           stateCode: "27",
           state: "Maharashtra",
           sector: "Manufacturing",
@@ -59,8 +59,8 @@ async function main() {
         {
           legalName: "Bharat Tech Services LLP",
           tradeName: "Bharat Tech",
-          gstin: "29AABCB5678F1Z2",
-          pan: "AABCB5678F",
+          gstin: "29AABCB2222B1ZE",
+          pan: "AABCB2222B",
           stateCode: "29",
           state: "Karnataka",
           sector: "IT Services",
