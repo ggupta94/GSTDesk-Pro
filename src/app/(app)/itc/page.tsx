@@ -30,6 +30,7 @@ export default async function ITCPage({
       select: {
         id: true,
         legalName: true,
+        gstin: true,
         gstPortalUsername: true,
         gstPortalPasswordEnc: true,
       },
@@ -72,6 +73,7 @@ export default async function ITCPage({
               clients={clients.map((c) => ({
                 id: c.id,
                 legalName: c.legalName,
+                gstin: c.gstin,
                 hasCredentials: !!(c.gstPortalUsername && c.gstPortalPasswordEnc),
               }))}
               periods={periods}
