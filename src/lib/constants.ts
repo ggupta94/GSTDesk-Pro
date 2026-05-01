@@ -49,9 +49,9 @@ export const GST_RATES = [0, 0.1, 0.25, 3, 5, 12, 18, 28] as const;
 
 // Permissions matrix
 export const PERMISSIONS = {
-  CA: { read: true, write: true, delete: true, manageUsers: true, viewItc: true },
-  ARTICLE: { read: true, write: true, delete: false, manageUsers: false, viewItc: true },
-  STAFF: { read: true, write: false, delete: false, manageUsers: false, viewItc: true },
+  CA:      { read: true, write: true,  delete: true,  manageUsers: true,  viewItc: true, viewCredentials: true,  editCredentials: true  },
+  ARTICLE: { read: true, write: true,  delete: false, manageUsers: false, viewItc: true, viewCredentials: true,  editCredentials: false },
+  STAFF:   { read: true, write: false, delete: false, manageUsers: false, viewItc: true, viewCredentials: false, editCredentials: false },
 } as const;
 
 export function can(role: Role | undefined | null, action: keyof (typeof PERMISSIONS)["CA"]) {

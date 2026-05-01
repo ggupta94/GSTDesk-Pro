@@ -27,7 +27,11 @@ export default async function EditClientPage({
       {sp.error ? (
         <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">{sp.error}</div>
       ) : null}
-      <ClientForm mode="edit" client={client} />
+      <ClientForm
+        mode="edit"
+        client={{ ...client, hasGstPortalPassword: !!client.gstPortalPasswordEnc }}
+        canEditCredentials={can(user.role, "editCredentials")}
+      />
     </div>
   );
 }

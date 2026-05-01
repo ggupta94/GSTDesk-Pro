@@ -61,6 +61,9 @@ model Client {
   city             String?
   pincode          String?
   notes            String?
+  // GST portal credentials — username plaintext, password encrypted at rest (AES-256-GCM)
+  gstPortalUsername String?
+  gstPortalPasswordEnc String?
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

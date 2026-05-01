@@ -22,14 +22,18 @@ type ClientLike = {
   city?: string | null;
   pincode?: string | null;
   notes?: string | null;
+  gstPortalUsername?: string | null;
+  hasGstPortalPassword?: boolean;
 };
 
 export default function ClientForm({
   mode,
   client,
+  canEditCredentials,
 }: {
   mode: "create" | "edit";
   client?: ClientLike;
+  canEditCredentials: boolean;
 }) {
   const [gstin, setGstin] = useState(client?.gstin ?? "");
   const [pan, setPan] = useState(client?.pan ?? "");
@@ -168,6 +172,43 @@ export default function ClientForm({
           </div>
         </div>
       </fieldset>
+
+      {canEditCredentials ? (
+        <fieldset className="border-t pt-4">
+          <legend className="text-sm font-semibold text-slate-700 mb-1">GST Portal Credentials</legend>
+          <p className="text-xs text-slate-500 mb-3">
+            Stored encrypted (AES-256-GCM). Used to log into gst.gov.in on behalf of the client.
+            {mode === "edit" ? " Leave password blank to keep the current one unchanged." : ""}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Portal User ID</label>
+              <input
+                name="gstPortalUsername"
+                defaultValue={client?.gstPortalUsername ?? ""}
+                className="input font-mono"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div>
+              <label className="label">
+                Portal Password{" "}
+                {mode === "edit" && client?.hasGstPortalPassword ? (
+                  <span className="text-xs font-normal text-slate-500">(saved — leave blank to keep)</span>
+                ) : null}
+              </label>
+              <input
+                name="gstPortalPassword"
+                type="password"
+                placeholder={mode === "edit" && client?.hasGstPortalPassword ? "••••••••" : ""}
+                className="input font-mono"
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+        </fieldset>
+      ) : null}
 
       <div>
         <label className="label">Notes</label>

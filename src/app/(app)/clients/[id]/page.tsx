@@ -6,6 +6,8 @@ import { requireUser } from "@/lib/auth";
 import { can } from "@/lib/constants";
 import { formatPeriodLabel } from "@/lib/gst";
 import { deleteClientAction } from "../actions";
+import { decryptSecret } from "@/lib/crypto";
+import PortalCredentials from "./PortalCredentials";
 
 function fyStart(d: Date = new Date()) {
   const year = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
@@ -488,6 +490,16 @@ export default async function ClientDetailPage({
           </div>
         </div>
       </div>
+
+      {/* ── PORTAL CREDENTIALS ── */}
+      {can(user.role, "viewCredentials") ? (
+        <PortalCredentials
+          username={client.gstPortalUsername}
+          password={decryptSecret(client.gstPortalPasswordEnc)}
+          canEdit={can(user.role, "editCredentials")}
+          editHref={`/clients/${client.id}/edit`}
+        />
+      ) : null}
 
       {/* ── CONTACT + ADDRESS + NOTES ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
