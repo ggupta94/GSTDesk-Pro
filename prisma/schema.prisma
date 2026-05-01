@@ -1,0 +1,185 @@
+// GSTDesk Pro - Prisma schema (SQLite, enums replaced by string fields)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// USERS & ACCESS
+// role: "CA" | "ARTICLE" | "STAFF"
+model User {
+  id           String        @id @default(cuid())
+  username     String        @unique
+  passwordHash String
+  fullName     String
+  role         String
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  lastLoginAt  DateTime?
+  activities   ActivityLog[]
+  invoices     Invoice[]
+  returns      Return[]      @relation("ReturnFiledBy")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  entity    String?
+  entityId  String?
+  meta      String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// CLIENTS
+// filingFrequency: "MONTHLY" | "QUARTERLY"
+// registrationType: "REGULAR" | "COMPOSITION" | "SEZ" | "CASUAL" | "ISD" | "TDS" | "TCS" | "NRTP"
+model Client {
+  id               String   @id @default(cuid())
+  legalName        String
+  tradeName        String?
+  gstin            String   @unique
+  pan              String
+  stateCode        String
+  state            String
+  sector           String?
+  turnoverCrore    Float?
+  filingFrequency  String   @default("MONTHLY")
+  registrationType String   @default("REGULAR")
+  contactName      String?
+  contactEmail     String?
+  contactPhone     String?
+  addressLine1     String?
+  addressLine2     String?
+  city             String?
+  pincode          String?
+  notes            String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  returns  Return[]
+  itc      ITCRecord[]
+  invoices Invoice[]
+
+  @@index([legalName])
+  @@index([stateCode])
+}
+
+// GST RETURNS
+// type: "GSTR1" | "GSTR3B" | "GSTR9" | "GSTR2B"
+// status: "PENDING" | "FILED" | "OVERDUE"
+model Return {
+  id        String    @id @default(cuid())
+  clientId  String
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type      String
+  period    String
+  dueDate   DateTime
+  filedAt   DateTime?
+  arn       String?
+  status    String    @default("PENDING")
+  filedById String?
+  filedBy   User?     @relation("ReturnFiledBy", fields: [filedById], references: [id])
+  remarks   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([clientId, type, period])
+  @@index([dueDate])
+  @@index([status])
+}
+
+// ITC TRACKER
+// eligibility: "FULLY_ELIGIBLE" | "PARTIALLY_BLOCKED" | "BLOCKED"
+model ITCRecord {
+  id            String   @id @default(cuid())
+  clientId      String
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  period        String
+  igstAvailable Float    @default(0)
+  cgstAvailable Float    @default(0)
+  sgstAvailable Float    @default(0)
+  igstUtilised  Float    @default(0)
+  cgstUtilised  Float    @default(0)
+  sgstUtilised  Float    @default(0)
+  eligibility   String   @default("FULLY_ELIGIBLE")
+  blockedReason String?
+  remarks       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([clientId, period])
+  @@index([clientId])
+}
+
+// INVOICES
+// supplyType: "INTRA_STATE" (CGST+SGST) | "INTER_STATE" (IGST)
+model Invoice {
+  id             String        @id @default(cuid())
+  invoiceNumber  String        @unique
+  invoiceDate    DateTime
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id])
+  buyerName      String
+  buyerGstin     String?
+  buyerStateCode String
+  buyerAddress   String?
+  buyerCity      String?
+  buyerPincode   String?
+  supplyType     String
+  placeOfSupply  String
+  subTotal       Float
+  totalCgst      Float         @default(0)
+  totalSgst      Float         @default(0)
+  totalIgst      Float         @default(0)
+  totalCess      Float         @default(0)
+  grandTotal     Float
+  amountInWords  String
+  bankName       String?
+  bankAccount    String?
+  bankIfsc       String?
+  notes          String?
+  createdById    String?
+  createdBy      User?         @relation(fields: [createdById], references: [id])
+  createdAt      DateTime      @default(now())
+  items          InvoiceItem[]
+
+  @@index([invoiceDate])
+  @@index([clientId])
+}
+
+model InvoiceItem {
+  id           String  @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description  String
+  hsnSac       String
+  quantity     Float
+  unit         String?
+  rate         Float
+  taxableValue Float
+  gstRate      Float
+  cgstAmount   Float   @default(0)
+  sgstAmount   Float   @default(0)
+  igstAmount   Float   @default(0)
+  cessAmount   Float   @default(0)
+  lineTotal    Float
+}
+
+// HSN / SAC reference codes
+// type: "HSN" | "SAC"
+model HsnSacCode {
+  id          String @id @default(cuid())
+  code        String @unique
+  type        String
+  description String
+  gstRate     Float
+}
