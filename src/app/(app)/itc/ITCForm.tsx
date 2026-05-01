@@ -66,7 +66,11 @@ export default function ITCForm({
 
   function applyParsed(result: Gstr2bParseResult, sourceLabel: string) {
     if (!result.ok) {
-      setInfo({ tone: "red", text: result.error });
+      setInfo({
+        tone: "red",
+        text: result.error,
+        sub: result.diagnostic,
+      });
       return;
     }
     if (selected && result.gstin !== selected.gstin) {
@@ -82,10 +86,18 @@ export default function ITCForm({
     setEligibility(result.eligibility);
     if (result.blockedReason) setBlockedReason(result.blockedReason);
     setPeriod(result.period);
+    const total = result.igstAvailable + result.cgstAvailable + result.sgstAvailable;
+    const totalBlocked = result.igstBlocked + result.cgstBlocked + result.sgstBlocked;
     setInfo({
-      tone: "green",
-      text: `${sourceLabel} loaded · ${result.periodLabel} · GSTIN ${result.gstin}`,
-      sub: `Available: IGST ₹${result.igstAvailable.toFixed(0)} · CGST ₹${result.cgstAvailable.toFixed(0)} · SGST ₹${result.sgstAvailable.toFixed(0)}${result.igstBlocked + result.cgstBlocked + result.sgstBlocked > 0 ? ` · Blocked total ₹${(result.igstBlocked + result.cgstBlocked + result.sgstBlocked).toFixed(0)}` : ""}`,
+      tone: total === 0 && totalBlocked === 0 ? "amber" : "green",
+      text:
+        total === 0 && totalBlocked === 0
+          ? `${sourceLabel} loaded · ${result.periodLabel} · GSTIN ${result.gstin} — but no ITC amounts found in the file`
+          : `${sourceLabel} loaded · ${result.periodLabel} · GSTIN ${result.gstin}`,
+      sub:
+        total === 0 && totalBlocked === 0
+          ? `${result.diagnostic} — if you see ITC on the portal, send me the diagnostic line so I can adjust the parser.`
+          : `Available: IGST ₹${result.igstAvailable.toFixed(0)} · CGST ₹${result.cgstAvailable.toFixed(0)} · SGST ₹${result.sgstAvailable.toFixed(0)}${totalBlocked > 0 ? ` · Blocked total ₹${totalBlocked.toFixed(0)}` : ""}`,
     });
   }
 
