@@ -7,6 +7,7 @@ import { can } from "@/lib/constants";
 import { formatPeriodLabel } from "@/lib/gst";
 import { deleteClientAction } from "../actions";
 import { decryptSecret } from "@/lib/crypto";
+import { calculateUtilisation } from "@/lib/itc-utilisation";
 import PortalCredentials from "./PortalCredentials";
 
 function fyStart(d: Date = new Date()) {
@@ -57,7 +58,7 @@ export default async function ClientDetailPage({
     }),
     prisma.invoice.findMany({
       where: { clientId: id, invoiceDate: { gte: last12Start } },
-      select: { invoiceDate: true, grandTotal: true },
+      select: { invoiceDate: true, grandTotal: true, totalIgst: true, totalCgst: true, totalSgst: true },
       orderBy: { invoiceDate: "asc" },
     }),
     prisma.invoice.aggregate({
@@ -111,22 +112,66 @@ export default async function ClientDetailPage({
   const lifetimeTurnover = invoiceTotalAgg._sum.grandTotal ?? 0;
   const lifetimeInvoiceCount = invoiceTotalAgg._count._all;
 
-  // monthly buckets for last 12 months (oldest -> newest)
-  const monthlyBuckets: { key: string; label: string; total: number }[] = [];
+  // monthly buckets for last 12 months (oldest -> newest) — turnover + tax liability
+  const monthlyBuckets: {
+    key: string;
+    label: string;
+    total: number;
+    igstLi: number;
+    cgstLi: number;
+    sgstLi: number;
+  }[] = [];
   for (let i = 11; i >= 0; i--) {
     const d = subMonths(now, i);
     monthlyBuckets.push({
       key: format(d, "yyyy-MM"),
       label: format(d, "MMM''yy"),
       total: 0,
+      igstLi: 0,
+      cgstLi: 0,
+      sgstLi: 0,
     });
   }
   for (const inv of last12Invoices) {
     const k = format(inv.invoiceDate, "yyyy-MM");
     const b = monthlyBuckets.find((x) => x.key === k);
-    if (b) b.total += inv.grandTotal;
+    if (b) {
+      b.total += inv.grandTotal;
+      b.igstLi += inv.totalIgst;
+      b.cgstLi += inv.totalCgst;
+      b.sgstLi += inv.totalSgst;
+    }
   }
   const maxMonthly = Math.max(1, ...monthlyBuckets.map((b) => b.total));
+
+  // Build month-wise GST liability summary (newest -> oldest) by joining
+  // the monthly invoice buckets with ITC records for the same period.
+  const itcByPeriod = new Map(itcRecords.map((r) => [r.period, r]));
+  const liabilityRows = [...monthlyBuckets]
+    .reverse()
+    .map((b) => {
+      const itc = itcByPeriod.get(b.key);
+      const available = {
+        igst: itc?.igstAvailable ?? 0,
+        cgst: itc?.cgstAvailable ?? 0,
+        sgst: itc?.sgstAvailable ?? 0,
+      };
+      const liability = { igst: b.igstLi, cgst: b.cgstLi, sgst: b.sgstLi };
+      const u = calculateUtilisation(available, liability);
+      return {
+        period: b.key,
+        label: b.label,
+        outputTotal: b.igstLi + b.cgstLi + b.sgstLi,
+        availableTotal: available.igst + available.cgst + available.sgst,
+        utilisedTotal: u.total.utilised,
+        cashPayable: u.total.cashPayable,
+        balanceTotal: u.total.balance,
+        hasInvoices: b.igstLi + b.cgstLi + b.sgstLi > 0,
+        hasITC: !!itc,
+      };
+    })
+    .filter((r) => r.hasInvoices || r.hasITC);
+  const totalCashPayable = liabilityRows.reduce((s, r) => s + r.cashPayable, 0);
 
   // ITC totals
   const itcAvail =
@@ -390,6 +435,78 @@ export default async function ClientDetailPage({
             </table>
           </div>
         ) : null}
+      </div>
+
+      {/* ── MONTH-WISE GST LIABILITY SUMMARY ── */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-900">Month-wise GST Liability</h2>
+            <p className="text-xs text-slate-500">
+              Output tax (from invoices) − ITC available (from 2B) → utilised + cash payable per Rule 88A
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-slate-500">Total cash payable (last 12 months)</div>
+            <div className="text-lg font-bold text-red-700 font-mono">
+              ₹ {totalCashPayable.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+        </div>
+        {liabilityRows.length === 0 ? (
+          <div className="p-6 text-center text-sm text-slate-500">
+            No invoices or ITC records yet. Once you start filing returns, this table will summarise output / ITC / cash payable per month.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table-base">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th className="text-right">Output Tax</th>
+                  <th className="text-right">ITC Available</th>
+                  <th className="text-right">ITC Utilised</th>
+                  <th className="text-right">Cash Payable</th>
+                  <th className="text-right">Balance C/F</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {liabilityRows.map((r) => (
+                  <tr key={r.period} className={r.cashPayable > 0 ? "bg-red-50/40" : ""}>
+                    <td className="font-medium">{r.label}</td>
+                    <td className="text-right font-mono">{inr(r.outputTotal)}</td>
+                    <td className="text-right font-mono">{inr(r.availableTotal)}</td>
+                    <td className="text-right font-mono text-indigo-700">{inr(r.utilisedTotal)}</td>
+                    <td
+                      className={`text-right font-mono font-semibold ${
+                        r.cashPayable > 0 ? "text-red-700" : "text-slate-400"
+                      }`}
+                    >
+                      {r.cashPayable > 0 ? inr(r.cashPayable) : "—"}
+                    </td>
+                    <td className="text-right font-mono text-green-700">{inr(r.balanceTotal)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-slate-100 font-semibold">
+                  <td>Total</td>
+                  <td className="text-right font-mono">
+                    {inr(liabilityRows.reduce((s, r) => s + r.outputTotal, 0))}
+                  </td>
+                  <td className="text-right font-mono">
+                    {inr(liabilityRows.reduce((s, r) => s + r.availableTotal, 0))}
+                  </td>
+                  <td className="text-right font-mono text-indigo-700">
+                    {inr(liabilityRows.reduce((s, r) => s + r.utilisedTotal, 0))}
+                  </td>
+                  <td className="text-right font-mono text-red-700">{inr(totalCashPayable)}</td>
+                  <td className="text-right font-mono text-green-700">
+                    {inr(liabilityRows.reduce((s, r) => s + r.balanceTotal, 0))}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* ── RETURNS + RECENT INVOICES ── */}

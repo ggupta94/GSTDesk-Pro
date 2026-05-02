@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { upsertITCAction } from "./actions";
 import { ITC_ELIGIBILITY } from "@/lib/constants";
 import { parseGstr2bJson, type Gstr2bParseResult } from "@/lib/gstr2b";
+import { calculateUtilisation } from "@/lib/itc-utilisation";
 
 type ClientLite = {
   id: string;
@@ -57,12 +58,86 @@ export default function ITCForm({
 
   const [busyJson, setBusyJson] = useState(false);
   const [busyFetch, setBusyFetch] = useState(false);
+  const [busyOutput, setBusyOutput] = useState(false);
   const [info, setInfo] = useState<{ tone: "green" | "amber" | "red"; text: string; sub?: string } | null>(null);
+  const [outputTax, setOutputTax] = useState<{
+    igst: number;
+    cgst: number;
+    sgst: number;
+    invoiceCount: number;
+  } | null>(null);
 
   const [, startTransition] = useTransition();
 
   const selected = clients.find((c) => c.id === clientId);
   const credentialsOk = !!selected?.hasCredentials;
+
+  // Live calculation: utilisation + cash payable + balance, recomputed
+  // whenever Available or Output Tax change.
+  const utilisation = useMemo(() => {
+    return calculateUtilisation(
+      {
+        igst: parseFloat(igstAvail) || 0,
+        cgst: parseFloat(cgstAvail) || 0,
+        sgst: parseFloat(sgstAvail) || 0,
+      },
+      outputTax ?? { igst: 0, cgst: 0, sgst: 0 }
+    );
+  }, [igstAvail, cgstAvail, sgstAvail, outputTax]);
+
+  async function autoFillUtilisation() {
+    if (!clientId) {
+      setInfo({ tone: "red", text: "Choose a client first." });
+      return;
+    }
+    setBusyOutput(true);
+    setInfo(null);
+    try {
+      const r = await fetch(`/api/clients/${clientId}/output-tax?period=${encodeURIComponent(period)}`, {
+        cache: "no-store",
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        setInfo({ tone: "red", text: data.error ?? "Could not fetch output tax" });
+        return;
+      }
+      setOutputTax({
+        igst: data.igst,
+        cgst: data.cgst,
+        sgst: data.sgst,
+        invoiceCount: data.invoiceCount,
+      });
+      // Apply utilisation directly to the Utilised inputs
+      const u = calculateUtilisation(
+        {
+          igst: parseFloat(igstAvail) || 0,
+          cgst: parseFloat(cgstAvail) || 0,
+          sgst: parseFloat(sgstAvail) || 0,
+        },
+        { igst: data.igst, cgst: data.cgst, sgst: data.sgst }
+      );
+      setIgstUtil(u.utilised.igst.toFixed(2));
+      setCgstUtil(u.utilised.cgst.toFixed(2));
+      setSgstUtil(u.utilised.sgst.toFixed(2));
+      if (data.invoiceCount === 0) {
+        setInfo({
+          tone: "amber",
+          text: `No invoices found for this client in ${period}.`,
+          sub: "Output tax is zero, so utilisation is also zero. Issue invoices first, then re-run.",
+        });
+      } else {
+        setInfo({
+          tone: "green",
+          text: `Utilisation auto-calculated from ${data.invoiceCount} invoice${data.invoiceCount === 1 ? "" : "s"} in ${period} (Rule 88A).`,
+          sub: `Output tax: IGST ₹${data.igst.toLocaleString("en-IN")} · CGST ₹${data.cgst.toLocaleString("en-IN")} · SGST ₹${data.sgst.toLocaleString("en-IN")}`,
+        });
+      }
+    } catch (e: unknown) {
+      setInfo({ tone: "red", text: e instanceof Error ? e.message : "Network error" });
+    } finally {
+      setBusyOutput(false);
+    }
+  }
 
   function applyParsed(result: Gstr2bParseResult, sourceLabel: string) {
     if (!result.ok) {
@@ -322,6 +397,39 @@ export default function ITCForm({
         </div>
       ) : null}
 
+      {/* AUTO-CALCULATE UTILISATION */}
+      <div className="rounded-lg ring-2 ring-indigo-300 bg-indigo-50/40 p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white">
+            <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="2" width="16" height="20" rx="2" />
+              <line x1="8" y1="6" x2="16" y2="6" />
+              <line x1="8" y1="12" x2="8" y2="12" />
+              <line x1="12" y1="12" x2="12" y2="12" />
+              <line x1="16" y1="12" x2="16" y2="12" />
+              <line x1="8" y1="16" x2="8" y2="16" />
+              <line x1="12" y1="16" x2="12" y2="16" />
+              <line x1="16" y1="16" x2="16" y2="16" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-semibold text-slate-900">Auto-calculate Utilisation</h3>
+            <p className="mt-0.5 text-xs text-slate-600">
+              Pulls output tax from this month&apos;s invoices and applies Rule 88A
+              (IGST credit consumed first, then CGST/SGST). Fills the Utilised fields below.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={autoFillUtilisation}
+          disabled={busyOutput || !clientId}
+          className="btn-secondary text-sm"
+        >
+          {busyOutput ? "Calculating…" : "Calculate Utilisation"}
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <NumInput name="igstAvailable" label="IGST Available" value={igstAvail} onChange={setIgstAvail} />
         <NumInput name="cgstAvailable" label="CGST Available" value={cgstAvail} onChange={setCgstAvail} />
@@ -353,12 +461,130 @@ export default function ITCForm({
         </div>
       </div>
 
+      {/* LIVE CALCULATION SUMMARY */}
+      <div className="card p-4 bg-slate-50/50">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-slate-900">GST Liability — This Period</h3>
+          {outputTax ? (
+            <span className="text-xs text-slate-500">
+              Based on {outputTax.invoiceCount} invoice{outputTax.invoiceCount === 1 ? "" : "s"} in {period}
+            </span>
+          ) : (
+            <span className="text-xs text-slate-400">Click &ldquo;Calculate Utilisation&rdquo; for live numbers</span>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-600"></th>
+                <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-600">IGST</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-600">CGST</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-600">SGST</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-600">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              <SummaryRow
+                label="Output Tax (Liability)"
+                igst={outputTax?.igst ?? 0}
+                cgst={outputTax?.cgst ?? 0}
+                sgst={outputTax?.sgst ?? 0}
+              />
+              <SummaryRow
+                label="ITC Available"
+                igst={parseFloat(igstAvail) || 0}
+                cgst={parseFloat(cgstAvail) || 0}
+                sgst={parseFloat(sgstAvail) || 0}
+              />
+              <SummaryRow
+                label="ITC Utilised"
+                igst={utilisation.utilised.igst}
+                cgst={utilisation.utilised.cgst}
+                sgst={utilisation.utilised.sgst}
+                tone="indigo"
+              />
+              <SummaryRow
+                label="Cash Payable"
+                igst={utilisation.cashPayable.igst}
+                cgst={utilisation.cashPayable.cgst}
+                sgst={utilisation.cashPayable.sgst}
+                tone="red"
+                bold
+              />
+              <SummaryRow
+                label="Carry-forward Balance"
+                igst={utilisation.balance.igst}
+                cgst={utilisation.balance.cgst}
+                sgst={utilisation.balance.sgst}
+                tone="green"
+              />
+            </tbody>
+          </table>
+        </div>
+        {utilisation.total.cashPayable > 0 ? (
+          <p className="mt-2 text-xs text-slate-600">
+            <strong>Net cash to deposit in challan:</strong>{" "}
+            <span className="text-red-700 font-mono">₹ {utilisation.total.cashPayable.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+          </p>
+        ) : (
+          outputTax && outputTax.invoiceCount > 0 ? (
+            <p className="mt-2 text-xs text-green-700">
+              ✓ All output tax can be paid from credit. No cash payable.
+            </p>
+          ) : null
+        )}
+      </div>
+
       <div className="flex justify-end">
         <button className="btn-primary" type="submit">
           Save
         </button>
       </div>
     </form>
+  );
+}
+
+function SummaryRow({
+  label,
+  igst,
+  cgst,
+  sgst,
+  tone,
+  bold,
+}: {
+  label: string;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  tone?: "indigo" | "red" | "green";
+  bold?: boolean;
+}) {
+  const toneCls =
+    tone === "red"
+      ? "text-red-700"
+      : tone === "green"
+        ? "text-green-700"
+        : tone === "indigo"
+          ? "text-indigo-700"
+          : "text-slate-700";
+  const total = igst + cgst + sgst;
+  const fmt = (n: number) =>
+    n === 0 ? "—" : `₹ ${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  return (
+    <tr>
+      <td className="px-3 py-2 text-slate-600">{label}</td>
+      <td className={`px-3 py-2 text-right font-mono ${toneCls} ${bold ? "font-semibold" : ""}`}>
+        {fmt(igst)}
+      </td>
+      <td className={`px-3 py-2 text-right font-mono ${toneCls} ${bold ? "font-semibold" : ""}`}>
+        {fmt(cgst)}
+      </td>
+      <td className={`px-3 py-2 text-right font-mono ${toneCls} ${bold ? "font-semibold" : ""}`}>
+        {fmt(sgst)}
+      </td>
+      <td className={`px-3 py-2 text-right font-mono font-semibold ${toneCls}`}>{fmt(total)}</td>
+    </tr>
   );
 }
 
